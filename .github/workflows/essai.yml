@@ -40,7 +40,7 @@ jobs:
           if (-not (Get-ChildItem -Recurse "$env:LOCALAPPDATA\timeless-updater\pending" -Filter *.exe -ErrorAction SilentlyContinue)) { exit 1 }
 
   mac-intel:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - name: Télécharger, vérifier la signature Apple, installer
         run: |
