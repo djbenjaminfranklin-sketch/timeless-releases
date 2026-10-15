@@ -1,0 +1,72 @@
+name: Essai du logiciel
+# Installe la dernière version publiée sur de vraies machines Windows et Mac, et vérifie qu'elle s'ouvre.
+on:
+  workflow_dispatch:
+    inputs:
+      mise_a_jour:
+        description: "Version de départ à installer pour tester la mise à jour automatique (vide = pas de test)"
+        required: false
+        default: ""
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Télécharger et installer
+        shell: pwsh
+        run: |
+          $tag = if ("${{ inputs.mise_a_jour }}") { "download/v${{ inputs.mise_a_jour }}" } else { "latest/download" }
+          Invoke-WebRequest "https://github.com/${{ github.repository }}/releases/$tag/Timeless-Windows-Setup.exe" -OutFile setup.exe
+          Start-Process .\setup.exe -ArgumentList "/S" -Wait
+          Start-Sleep 5
+          Get-Item "$env:LOCALAPPDATA\Programs\Timeless\Timeless.exe" | Select-Object FullName, Length, @{n='Version';e={$_.VersionInfo.ProductVersion}}
+      - name: Ouvrir Timeless (essai automatique)
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\essai.txt"
+          $p = Start-Process "$env:LOCALAPPDATA\Programs\Timeless\Timeless.exe" -ArgumentList "--smoke","--smoke-out=$out" -PassThru
+          $p | Wait-Process -Timeout 90
+          Get-Content $out
+          if (-not (Select-String -Path $out -Pattern "ESSAI OK" -Quiet)) { exit 1 }
+      - name: Mise à jour automatique
+        if: inputs.mise_a_jour != ''
+        shell: pwsh
+        run: |
+          $p = Start-Process "$env:LOCALAPPDATA\Programs\Timeless\Timeless.exe" -PassThru
+          Start-Sleep 120
+          Get-ChildItem -Recurse "$env:LOCALAPPDATA\timeless-updater" -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          Get-Content "$env:APPDATA\Timeless\mises-a-jour.log" -ErrorAction SilentlyContinue
+          Stop-Process $p -ErrorAction SilentlyContinue
+          if (-not (Get-ChildItem -Recurse "$env:LOCALAPPDATA\timeless-updater\pending" -Filter *.exe -ErrorAction SilentlyContinue)) { exit 1 }
+
+  mac-intel:
+    runs-on: macos-13
+    steps:
+      - name: Télécharger, vérifier la signature Apple, installer
+        run: |
+          curl -sL -o t.dmg "https://github.com/${{ github.repository }}/releases/latest/download/Timeless-mac-x64.dmg"
+          hdiutil attach -nobrowse -quiet t.dmg -mountpoint /Volumes/T
+          cp -R /Volumes/T/Timeless.app /Applications/
+          spctl -a -vvv -t exec /Applications/Timeless.app
+          xcrun stapler validate /Applications/Timeless.app
+      - name: Ouvrir Timeless (essai automatique)
+        run: |
+          /Applications/Timeless.app/Contents/MacOS/Timeless --smoke --smoke-out=$RUNNER_TEMP/essai.txt || true
+          cat $RUNNER_TEMP/essai.txt
+          grep -q "ESSAI OK" $RUNNER_TEMP/essai.txt
+
+  mac-apple:
+    runs-on: macos-14
+    steps:
+      - name: Télécharger, vérifier la signature Apple, installer
+        run: |
+          curl -sL -o t.dmg "https://github.com/${{ github.repository }}/releases/latest/download/Timeless-mac-arm64.dmg"
+          hdiutil attach -nobrowse -quiet t.dmg -mountpoint /Volumes/T
+          cp -R /Volumes/T/Timeless.app /Applications/
+          spctl -a -vvv -t exec /Applications/Timeless.app
+          xcrun stapler validate /Applications/Timeless.app
+      - name: Ouvrir Timeless (essai automatique)
+        run: |
+          /Applications/Timeless.app/Contents/MacOS/Timeless --smoke --smoke-out=$RUNNER_TEMP/essai.txt || true
+          cat $RUNNER_TEMP/essai.txt
+          grep -q "ESSAI OK" $RUNNER_TEMP/essai.txt
