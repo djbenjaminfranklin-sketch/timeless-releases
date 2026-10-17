@@ -58,7 +58,7 @@ jobs:
           app.whenReady().then(async () => {
             session.defaultSession.setDisplayMediaRequestHandler(async (_r, cb) => { const [s] = await desktopCapturer.getSources({ types: ['screen'] }); cb({ video: s, audio: 'loopback' }) })
             const w = new BrowserWindow({ show: true, webPreferences: { autoplayPolicy: 'no-user-gesture-required' } })
-            await w.loadURL('data:text/html,' + encodeURIComponent(page))
+            fs.writeFileSync(path.join(__dirname, 'page.html'), '<!doctype html><meta charset=utf-8>' + page); await w.loadFile(path.join(__dirname, 'page.html'))
             for (const restrict of [false, true]) {
               setTimeout(() => spawn('powershell', ['-c', `(New-Object Media.SoundPlayer '${wav}').PlaySync()`]), 2000)
               const r = await w.webContents.executeJavaScript(`run(${restrict})`).catch((e) => ({ erreur: String(e) }))
