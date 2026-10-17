@@ -1,0 +1,69 @@
+name: Essai du son de l'ordinateur (Windows)
+# Vérifie, sur une vraie machine Windows, que le son de l'ordinateur est capté SANS le son de l'application elle-même
+# (même Electron que le logiciel Timeless, même réglage : loopback + restrictOwnAudio).
+on:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Carte son virtuelle (les machines d'essai n'en ont pas)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Set-Service Audiosrv -StartupType Automatic; Start-Service Audiosrv -ErrorAction SilentlyContinue
+          Set-Service AudioEndpointBuilder -StartupType Automatic; Start-Service AudioEndpointBuilder -ErrorAction SilentlyContinue
+          Invoke-WebRequest "https://github.com/duncanthrax/scream/releases/download/4.0/Scream4.0.zip" -OutFile scream.zip
+          Expand-Archive scream.zip -DestinationPath scream
+          Import-Certificate -FilePath scream\Install\driver\x64\Scream.cat -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -ErrorAction SilentlyContinue
+          $cert = (Get-AuthenticodeSignature scream\Install\driver\x64\Scream.sys).SignerCertificate
+          if ($cert) { $s = New-Object System.Security.Cryptography.X509Certificates.X509Store "TrustedPublisher","LocalMachine"; $s.Open("ReadWrite"); $s.Add($cert); $s.Close() }
+          scream\Install\helpers\devcon-x64.exe install scream\Install\driver\x64\Scream.inf *Scream
+          Start-Sleep 5
+          Get-PnpDevice -Class AudioEndpoint -ErrorAction SilentlyContinue | Format-Table -AutoSize
+      - name: Essai
+        shell: pwsh
+        run: |
+          mkdir essai; cd essai
+          npm init -y | Out-Null
+          npm i electron@44.7.2 --silent
+          @'
+          const { app, BrowserWindow, session, desktopCapturer } = require('electron')
+          const { spawn } = require('child_process')
+          const fs = require('fs'); const path = require('path')
+          // son d'une autre application : 880 Hz pendant 5 s (fichier WAV joué par PowerShell)
+          const rate = 48000, n = rate * 5, buf = Buffer.alloc(44 + n * 2)
+          buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVEfmt ', 8); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22)
+          buf.writeUInt32LE(rate, 24); buf.writeUInt32LE(rate * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write('data', 36); buf.writeUInt32LE(n * 2, 40)
+          for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 880 * i / rate) * 12000), 44 + i * 2)
+          const wav = path.join(__dirname, 'tone880.wav'); fs.writeFileSync(wav, buf)
+          const page = `<script>
+            window.run = async (restrict) => {
+              const c0 = new AudioContext(); await c0.resume(); const o = c0.createOscillator(); o.frequency.value = 440; const g = c0.createGain(); g.gain.value = 0.3; o.connect(g).connect(c0.destination); o.start()
+              const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: restrict ? { restrictOwnAudio: true } : true })
+              s.getVideoTracks().forEach((t) => t.stop())
+              const a = s.getAudioTracks()[0]; if (!a) return { erreur: 'pas de piste son' }
+              const c = new AudioContext(); const an = c.createAnalyser(); an.fftSize = 8192; an.smoothingTimeConstant = 0; c.createMediaStreamSource(new MediaStream([a])).connect(an)
+              const f = new Float32Array(an.frequencyBinCount), bin = (x) => Math.round(x / (c.sampleRate / an.fftSize)), out = []
+              const t0 = Date.now(); while (Date.now() - t0 < 9000) { await new Promise((r) => setTimeout(r, 500)); an.getFloatFrequencyData(f); out.push([Date.now() - t0, Math.round(f[bin(440)]), Math.round(f[bin(880)])]) }
+              a.stop(); o.stop(); return { label: a.label, mesures: out }
+            }</script>`
+          app.whenReady().then(async () => {
+            session.defaultSession.setDisplayMediaRequestHandler(async (_r, cb) => { const [s] = await desktopCapturer.getSources({ types: ['screen'] }); cb({ video: s, audio: 'loopback' }) })
+            const w = new BrowserWindow({ show: true, webPreferences: { autoplayPolicy: 'no-user-gesture-required' } })
+            await w.loadURL('data:text/html,' + encodeURIComponent(page))
+            for (const restrict of [false, true]) {
+              setTimeout(() => spawn('powershell', ['-c', `(New-Object Media.SoundPlayer '${wav}').PlaySync()`]), 2000)
+              const r = await w.webContents.executeJavaScript(`run(${restrict})`).catch((e) => ({ erreur: String(e) }))
+              console.log(`RESULTAT restrictOwnAudio=${restrict} ` + JSON.stringify(r))
+            }
+            app.exit(0)
+          })
+          '@ | Out-File -Encoding utf8 main.js
+          $p = Start-Process npx -ArgumentList "electron","main.js" -NoNewWindow -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          $p | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
+          Get-Content out.txt; Get-Content err.txt | Select-Object -Last 15
