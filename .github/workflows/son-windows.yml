@@ -32,6 +32,8 @@ jobs:
           mkdir essai; cd essai
           npm init -y | Out-Null
           npm i electron@44.7.2 --silent
+          node node_modules/electron/install.js
+          Get-ChildItem node_modules\electron\dist -Filter *.exe | Select-Object Name, Length
           @'
           const { app, BrowserWindow, session, desktopCapturer } = require('electron')
           const { spawn } = require('child_process')
@@ -65,6 +67,6 @@ jobs:
             app.exit(0)
           })
           '@ | Out-File -Encoding utf8 main.js
-          $p = Start-Process node_modules\electron\dist\electron.exe -ArgumentList "main.js" -NoNewWindow -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          $p = Start-Process (Resolve-Path node_modules\electron\dist\electron.exe).Path -ArgumentList "main.js" -NoNewWindow -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
           $p | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
           Get-Content out.txt; Get-Content err.txt | Select-Object -Last 15
