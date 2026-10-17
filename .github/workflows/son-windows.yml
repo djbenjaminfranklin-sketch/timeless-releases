@@ -14,19 +14,20 @@ jobs:
       - name: Carte son virtuelle (les machines d'essai n'en ont pas)
         shell: pwsh
         continue-on-error: true
+        timeout-minutes: 5
         run: |
           Set-Service Audiosrv -StartupType Automatic; Start-Service Audiosrv -ErrorAction SilentlyContinue
-          Set-Service AudioEndpointBuilder -StartupType Automatic; Start-Service AudioEndpointBuilder -ErrorAction SilentlyContinue
-          Invoke-WebRequest "https://github.com/duncanthrax/scream/releases/download/4.0/Scream4.0.zip" -OutFile scream.zip
-          Expand-Archive scream.zip -DestinationPath scream
-          Import-Certificate -FilePath scream\Install\driver\x64\Scream.cat -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -ErrorAction SilentlyContinue
-          $cert = (Get-AuthenticodeSignature scream\Install\driver\x64\Scream.sys).SignerCertificate
-          if ($cert) { $s = New-Object System.Security.Cryptography.X509Certificates.X509Store "TrustedPublisher","LocalMachine"; $s.Open("ReadWrite"); $s.Add($cert); $s.Close() }
-          scream\Install\helpers\devcon-x64.exe install scream\Install\driver\x64\Scream.inf *Scream
+          Invoke-WebRequest "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip" -OutFile vbcable.zip
+          Expand-Archive vbcable.zip -DestinationPath vbcable
+          Get-ChildItem vbcable -Recurse -Filter *.cat | ForEach-Object { $c = (Get-AuthenticodeSignature $_.FullName).SignerCertificate; if ($c) { $st = New-Object System.Security.Cryptography.X509Certificates.X509Store "TrustedPublisher","LocalMachine"; $st.Open("ReadWrite"); $st.Add($c); $st.Close() } }
+          $p = Start-Process vbcable\VBCABLE_Setup_x64.exe -ArgumentList "-i","-h" -PassThru
+          $p | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
           Start-Sleep 5
+          Restart-Service Audiosrv -Force -ErrorAction SilentlyContinue
           Get-PnpDevice -Class AudioEndpoint -ErrorAction SilentlyContinue | Format-Table -AutoSize
       - name: Essai
         shell: pwsh
+        timeout-minutes: 8
         run: |
           mkdir essai; cd essai
           npm init -y | Out-Null
