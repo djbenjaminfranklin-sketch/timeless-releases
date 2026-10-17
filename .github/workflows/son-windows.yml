@@ -65,6 +65,6 @@ jobs:
             app.exit(0)
           })
           '@ | Out-File -Encoding utf8 main.js
-          $p = Start-Process npx -ArgumentList "electron","main.js" -NoNewWindow -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          $p = Start-Process node_modules\electron\dist\electron.exe -ArgumentList "main.js" -NoNewWindow -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
           $p | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
           Get-Content out.txt; Get-Content err.txt | Select-Object -Last 15
